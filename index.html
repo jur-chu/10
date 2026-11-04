@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>10的好朋友 - 撲克牌合10大挑戰</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Font & FontAwesome Icon -->
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&family=Noto+Sans+TC:wght@600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        body {
+            font-family: 'Fredoka', 'Noto Sans TC', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            touch-action: manipulation;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* 撲克牌卡片基礎樣式 */
+        .poker-card {
+            aspect-ratio: 2.5 / 3.5;
+            perspective: 1000px;
+            transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+            cursor: grab;
+            position: relative;
+            transform-origin: center center;
+            will-change: transform, opacity;
+        }
+
+        .poker-card:active {
+            cursor: grabbing;
+        }
+
+        /* 被選取狀態 */
+        .poker-card.selected {
+            transform: scale(1.08) translateY(-4px);
+            box-shadow: 0 0 20px rgba(245, 158, 11, 0.7);
+            border-color: #f59e0b;
+        }
+
+        /* 被拖曳中的來源卡片樣式 */
+        .poker-card.dragging {
+            opacity: 0.3;
+            transform: scale(0.95);
+        }
+
+        /* 拖曳懸浮至上方目標時 */
+        .poker-card.drag-over {
+            transform: scale(1.1) translateY(-6px);
+            border-color: #10b981;
+            box-shadow: 0 0 25px rgba(16, 185, 129, 0.9);
+            z-index: 20;
+        }
+
+        /* 拖曳移動擬真特效 */
+        .card-flying {
+            transition: transform 0.35s cubic-bezier(0.25, 1, 0.5, 1) !important;
+            z-index: 40 !important;
+            pointer-events: none;
+        }
+
+        /* 消除動畫 */
+        @keyframes popOut {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.25) rotate(12deg); opacity: 0.9; }
+            100% { transform: scale(0); opacity: 0; }
+        }
+
+        .matched-anim {
+            animation: popOut 0.35s forwards ease-in-out !important;
+        }
+
+        /* 新牌登場動畫 (只有被替換的新牌會執行) */
+        @keyframes dealCard {
+            0% { transform: translateY(-30px) scale(0.3); opacity: 0; }
+            100% { transform: translateY(0) scale(1); opacity: 1; }
+        }
+
+        .deal-anim {
+            animation: dealCard 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        /* 配對失敗搖晃動畫 */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-6px) rotate(-3deg); }
+            40%, 80% { transform: translateX(6px) rotate(3deg); }
+        }
+        .shake-anim {
+            animation: shake 0.4s ease-in-out;
+        }
+
+        /* 浮動得分提示 */
+        @keyframes floatUp {
+            0% { opacity: 1; transform: translateY(0) scale(1); }
+            100% { opacity: 0; transform: translateY(-70px) scale(1.4); }
+        }
+        .float-score {
+            position: absolute;
+            animation: floatUp 1s forwards ease-out;
+            pointer-events: none;
+            font-weight: 800;
+            color: #fbbf24;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+            z-index: 50;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-between p-2 md:p-4 text-white overflow-x-hidden">
+
+    <!-- 頂部資訊欄 -->
+    <header class="w-full max-w-2xl bg-slate-800/90 backdrop-blur border-2 border-slate-700 rounded-2xl p-3 md:p-4 shadow-xl mb-2 flex items-center justify-between">
+        <!-- 分數 display -->
+        <div class="flex items-center space-x-2 bg-amber-500/20 border border-amber-500/40 px-3 py-1.5 rounded-xl">
+            <i class="fa-solid fa-star text-amber-400 text-xl md:text-2xl animate-bounce"></i>
+            <div>
+                <div class="text-xs text-amber-300 font-bold">目前得分</div>
+                <div id="scoreText" class="text-2xl md:text-3xl font-black text-amber-400 leading-none">0</div>
+            </div>
+        </div>
+
+        <!-- 標題 -->
+        <div class="text-center">
+            <h1 class="text-xl md:text-2xl font-black bg-clip-text text-transparent bg-gradient-to-r from-amber-300 via-rose-300 to-sky-300">
+                10 的好朋友
+            </h1>
+            <p class="text-[10px] md:text-xs text-slate-300">相加等於 10 就能消除！</p>
+        </div>
+
+        <!-- 倒數時間 display -->
+        <div class="flex items-center space-x-2 bg-emerald-500/20 border border-emerald-500/40 px-3 py-1.5 rounded-xl">
+            <i class="fa-solid fa-clock text-emerald-400 text-xl md:text-2xl"></i>
+            <div>
+                <div class="text-xs text-emerald-300 font-bold">剩餘時間</div>
+                <div id="timerText" class="text-2xl md:text-3xl font-black text-emerald-400 leading-none">02:00</div>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主遊戲區域：4x4 撲克牌網格 -->
+    <main class="w-full max-w-xl flex-1 flex flex-col justify-center items-center relative">
+        <div id="gameGrid" class="grid grid-cols-4 gap-2 md:gap-3 w-full p-2 bg-slate-900/60 border-2 border-slate-700/50 rounded-2xl shadow-2xl backdrop-blur-md">
+            <!-- 卡片由 JavaScript 動態生成與局部更新 -->
+        </div>
+    </main>
+
+    <!-- 底部說明區與音效切換 -->
+    <footer class="w-full max-w-xl mt-2 flex justify-between items-center px-2">
+        <div class="text-xs text-slate-400 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700">
+            <i class="fa-solid fa-lightbulb text-amber-400 mr-1"></i>小撇步：將卡牌拉到對應卡牌上釋放！
+        </div>
+        <button id="soundToggleBtn" onclick="toggleAudio()" class="px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:text-white text-xs flex items-center space-x-1">
+            <i id="soundIcon" class="fa-solid fa-volume-high"></i>
+            <span id="soundText">音效 ON</span>
+        </button>
+    </footer>
+
+    <!-- 遊戲開始彈窗 -->
+    <div id="startOverlay" class="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+        <div class="bg-slate-800 border-2 border-amber-400/50 rounded-3xl p-6 md:p-8 max-w-md w-full text-center shadow-2xl relative overflow-hidden">
+            <div class="text-5xl mb-4">🎴✨</div>
+            <h2 class="text-2xl md:text-3xl font-black text-amber-400 mb-2">10 的好朋友大挑戰</h2>
+            <p class="text-sm text-slate-300 mb-6 leading-relaxed">
+                小朋友，找出兩張相加等於 <span class="text-amber-400 font-bold text-lg">10</span> 的撲克牌吧！<br>
+                例如：<span class="bg-slate-700 px-2 py-0.5 rounded text-rose-300 font-bold">1 + 9</span>、
+                <span class="bg-slate-700 px-2 py-0.5 rounded text-sky-300 font-bold">2 + 8</span>、
+                <span class="bg-slate-700 px-2 py-0.5 rounded text-amber-300 font-bold">5 + 5</span><br>
+                你有 <span class="text-emerald-400 font-bold">2 分鐘</span> 的時間，看看能得幾分！
+            </p>
+            <button onclick="startGame()" class="w-full py-4 bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-slate-950 font-black text-xl rounded-2xl shadow-lg hover:shadow-amber-500/25 transition-all transform active:scale-95">
+                開始遊戲 <i class="fa-solid fa-play ml-2"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- 遊戲結束結算彈窗 -->
+    <div id="gameOverOverlay" class="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-4 hidden">
+        <div class="bg-slate-800 border-2 border-amber-400/50 rounded-3xl p-6 md:p-8 max-w-md w-full text-center shadow-2xl relative">
+            <div class="text-6xl mb-3 animate-bounce" id="rewardEmoji">🏆</div>
+            <h2 class="text-3xl font-black text-amber-400 mb-1">時間到！挑戰完成</h2>
+            <p id="rewardTitle" class="text-lg font-bold text-emerald-400 mb-4">太棒了！你是合十小達人！</p>
+
+            <!-- 最終成績 -->
+            <div class="bg-slate-900/80 border border-slate-700 rounded-2xl p-4 mb-6">
+                <div class="text-sm text-slate-400 font-bold mb-1">本次得分</div>
+                <div id="finalScore" class="text-5xl font-black text-amber-400">0</div>
+                <div class="text-xs text-slate-400 mt-2" id="pairCountText">成功配對了 0 組卡牌</div>
+            </div>
+
+            <!-- 鼓勵評語 -->
+            <p id="encouragementText" class="text-sm text-slate-300 mb-6 bg-slate-700/50 p-3 rounded-xl border border-slate-600">
+                真厲害！你的心算速度超快的！繼續保持喔！
+            </p>
+
+            <button onclick="startGame()" class="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xl rounded-2xl shadow-lg hover:shadow-emerald-500/25 transition-all transform active:scale-95">
+                再玩一次 <i class="fa-solid fa-rotate-right ml-2"></i>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        /* ================= 音效系統 (Web Audio API) ================= */
+        class SoundEffects {
+            constructor() {
+                this.ctx = null;
+                this.enabled = true;
+            }
+
+            init() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+            }
+
+            playMatchSound() {
+                if (!this.enabled) return;
+                this.init();
+                const now = this.ctx.currentTime;
+                
+                const osc1 = this.ctx.createOscillator();
+                const osc2 = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc1.type = 'triangle';
+                osc2.type = 'sine';
+
+                osc1.frequency.setValueAtTime(659.25, now); // E5
+                osc1.frequency.setValueAtTime(880.00, now + 0.1); // A5
+                osc2.frequency.setValueAtTime(1318.51, now + 0.1); // E6
+
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+
+                osc1.connect(gain);
+                osc2.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                osc1.start(now);
+                osc2.start(now + 0.1);
+                osc1.stop(now + 0.4);
+                osc2.stop(now + 0.4);
+            }
+
+            playErrorSound() {
+                if (!this.enabled) return;
+                this.init();
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(220, now); // A3
+                osc.frequency.setValueAtTime(180, now + 0.1);
+
+                gain.gain.setValueAtTime(0.2, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                osc.start(now);
+                osc.stop(now + 0.25);
+            }
+
+            playEndSound() {
+                if (!this.enabled) return;
+                this.init();
+                const now = this.ctx.currentTime;
+                
+                const notes = [523.25, 659.25, 783.99, 1046.50];
+                notes.forEach((freq, index) => {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(freq, now + index * 0.12);
+
+                    gain.gain.setValueAtTime(0.3, now + index * 0.12);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + index * 0.12 + 0.3);
+
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+
+                    osc.start(now + index * 0.12);
+                    osc.stop(now + index * 0.12 + 0.3);
+                });
+            }
+
+            playPickupSound() {
+                if (!this.enabled) return;
+                this.init();
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(400, now);
+                osc.frequency.exponentialRampToValueAtTime(600, now + 0.05);
+
+                gain.gain.setValueAtTime(0.1, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                osc.start(now);
+                osc.stop(now + 0.05);
+            }
+        }
+
+        const sounds = new SoundEffects();
+        function toggleAudio() {
+            sounds.enabled = !sounds.enabled;
+            document.getElementById('soundIcon').className = sounds.enabled ? 'fa-solid fa-volume-high' : 'fa-solid fa-volume-xmark';
+            document.getElementById('soundText').innerText = sounds.enabled ? '音效 ON' : '音效 OFF';
+        }
+
+        /* ================= 遊戲主邏輯 ================= */
+        const GRID_SIZE = 16; 
+        const GAME_DURATION = 120; // 2分鐘
+        
+        let cards = []; // 16張牌資料
+        let score = 0;
+        let timer = GAME_DURATION;
+        let timerInterval = null;
+        let isPlaying = false;
+        
+        let selectedCardIndex = null;
+        let draggedIndex = null;
+
+        const SUITS = [
+            { icon: '♠', color: 'text-slate-900' },
+            { icon: '♥', color: 'text-rose-600' },
+            { icon: '♣', color: 'text-slate-900' },
+            { icon: '♦', color: 'text-rose-600' }
+        ];
+
+        function getRandomCardNumber() {
+            return Math.floor(Math.random() * 9) + 1;
+        }
+
+        function getRandomSuit() {
+            return SUITS[Math.floor(Math.random() * SUITS.length)];
+        }
+
+        function createNewCardData(num = null) {
+            const suit = getRandomSuit();
+            return {
+                id: Math.random().toString(36).substr(2, 9),
+                num: num !== null ? num : getRandomCardNumber(),
+                suitIcon: suit.icon,
+                textColor: suit.color
+            };
+        }
+
+        /* 檢查傳入的卡片陣列中是否存在至少一組加總等於 10 的組合 */
+        function hasValidPair(cardList) {
+            for (let i = 0; i < cardList.length; i++) {
+                for (let j = i + 1; j < cardList.length; j++) {
+                    if (cardList[i].num + cardList[j].num === 10) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        /* 確保全盤 16 張卡牌必定有可配對組合 */
+        function generateInitialBoard() {
+            let board = [];
+            for (let i = 0; i < GRID_SIZE; i++) {
+                board.push(createNewCardData());
+            }
+
+            // 如果隨機產生的 16 張牌沒有任何組合等於 10，強制替換最後兩張牌為保底組合
+            if (!hasValidPair(board)) {
+                const num1 = getRandomCardNumber();
+                const num2 = 10 - num1;
+                board[0] = createNewCardData(num1);
+                board[1] = createNewCardData(num2);
+            }
+
+            return board;
+        }
+
+        // 開始遊戲
+        function startGame() {
+            sounds.init();
+            score = 0;
+            timer = GAME_DURATION;
+            isPlaying = true;
+            selectedCardIndex = null;
+            draggedIndex = null;
+
+            document.getElementById('scoreText').innerText = score;
+            updateTimerDisplay();
+
+            document.getElementById('startOverlay').classList.add('hidden');
+            document.getElementById('gameOverOverlay').classList.add('hidden');
+
+            // 生成必定有解的 16 張初始牌
+            cards = generateInitialBoard();
+
+            initGridUI();
+
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                timer--;
+                updateTimerDisplay();
+                if (timer <= 0) endGame();
+            }, 1000);
+        }
+
+        function updateTimerDisplay() {
+            const mins = Math.floor(timer / 60).toString().padStart(2, '0');
+            const secs = (timer % 60).toString().padStart(2, '0');
+            const timerEl = document.getElementById('timerText');
+            timerEl.innerText = `${mins}:${secs}`;
+            
+            if (timer <= 15) {
+                timerEl.classList.remove('text-emerald-400');
+                timerEl.classList.add('text-rose-500', 'animate-pulse');
+            } else {
+                timerEl.classList.remove('text-rose-500', 'animate-pulse');
+                timerEl.classList.add('text-emerald-400');
+            }
+        }
+
+        /* 首次建立完整 4x4 卡片 UI */
+        function initGridUI() {
+            const gridEl = document.getElementById('gameGrid');
+            gridEl.innerHTML = '';
+
+            cards.forEach((card, index) => {
+                const cardEl = createCardElement(card, index);
+                cardEl.classList.add('deal-anim');
+                gridEl.appendChild(cardEl);
+            });
+        }
+
+        /* 生成單張卡片 DOM 元素 */
+        function createCardElement(card, index) {
+            const cardEl = document.createElement('div');
+            cardEl.className = `poker-card bg-white rounded-xl shadow-md border-2 border-slate-200 flex flex-col justify-between p-2 select-none ${card.textColor}`;
+            cardEl.dataset.index = index;
+            cardEl.dataset.id = card.id;
+            cardEl.draggable = true;
+
+            cardEl.innerHTML = `
+                <div class="flex flex-col items-start leading-none font-bold text-xs md:text-sm pointer-events-none">
+                    <span>${card.num}</span>
+                    <span class="text-[10px] md:text-xs">${card.suitIcon}</span>
+                </div>
+                <div class="flex flex-col items-center justify-center my-auto pointer-events-none">
+                    <span class="text-3xl md:text-5xl font-black tracking-tighter leading-none">${card.num}</span>
+                    <span class="text-lg md:text-2xl opacity-80 mt-0.5">${card.suitIcon}</span>
+                </div>
+                <div class="flex flex-col items-end leading-none font-bold text-xs md:text-sm rotate-180 pointer-events-none">
+                    <span>${card.num}</span>
+                    <span class="text-[10px] md:text-xs">${card.suitIcon}</span>
+                </div>
+            `;
+
+            addDragEvents(cardEl, index);
+            cardEl.addEventListener('click', () => handleCardClick(index));
+            return cardEl;
+        }
+
+        /* 局部更新單張卡片 (保留其餘 14 張卡片不變) */
+        function updateSingleCardUI(index, newCardData, isNew = false) {
+            const gridEl = document.getElementById('gameGrid');
+            const oldCardEl = gridEl.children[index];
+            
+            const newCardEl = createCardElement(newCardData, index);
+            if (isNew) {
+                newCardEl.classList.add('deal-anim');
+            }
+
+            if (oldCardEl) {
+                gridEl.replaceChild(newCardEl, oldCardEl);
+            }
+        }
+
+        /* ================= 拖曳 (Drag & Drop) 事件管理 ================= */
+        function addDragEvents(el, index) {
+            el.addEventListener('dragstart', (e) => {
+                if (!isPlaying) return;
+                draggedIndex = index;
+                el.classList.add('dragging');
+                sounds.playPickupSound();
+
+                e.dataTransfer.setData('text/plain', index);
+                e.dataTransfer.effectAllowed = 'move';
+            });
+
+            el.addEventListener('dragend', () => {
+                el.classList.remove('dragging');
+                clearDragOverStyles();
+            });
+
+            el.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                if (draggedIndex !== null && draggedIndex !== index) {
+                    el.classList.add('drag-over');
+                }
+            });
+
+            el.addEventListener('dragleave', () => {
+                el.classList.remove('drag-over');
+            });
+
+            el.addEventListener('drop', (e) => {
+                e.preventDefault();
+                el.classList.remove('drag-over');
+                if (draggedIndex !== null && draggedIndex !== index) {
+                    const fromIdx = draggedIndex;
+                    draggedIndex = null;
+                    checkPairMatch(fromIdx, index);
+                }
+            });
+
+            /* -------- 觸控螢幕拖曳支援 (Touch) -------- */
+            let touchStartRect = null;
+
+            el.addEventListener('touchstart', (e) => {
+                if (!isPlaying) return;
+                draggedIndex = index;
+                sounds.playPickupSound();
+                el.classList.add('selected');
+            }, { passive: true });
+
+            el.addEventListener('touchend', (e) => {
+                if (!isPlaying || draggedIndex === null) return;
+                el.classList.remove('selected');
+                
+                const touch = e.changedTouches[0];
+                const targetEl = document.elementFromPoint(touch.clientX, touch.clientY);
+                const cardTarget = targetEl ? targetEl.closest('.poker-card') : null;
+
+                if (cardTarget) {
+                    const targetIndex = parseInt(cardTarget.dataset.index);
+                    if (!isNaN(targetIndex) && targetIndex !== draggedIndex) {
+                        const fromIdx = draggedIndex;
+                        draggedIndex = null;
+                        checkPairMatch(fromIdx, targetIndex);
+                    }
+                }
+                draggedIndex = null;
+                clearDragOverStyles();
+            });
+        }
+
+        function clearDragOverStyles() {
+            document.querySelectorAll('.poker-card').forEach(c => c.classList.remove('drag-over', 'selected'));
+        }
+
+        /* ================= 點擊選擇模式 ================= */
+        function handleCardClick(index) {
+            if (!isPlaying) return;
+
+            const gridEl = document.getElementById('gameGrid');
+
+            if (selectedCardIndex === null) {
+                selectedCardIndex = index;
+                sounds.playPickupSound();
+                gridEl.children[index].classList.add('selected');
+            } else if (selectedCardIndex === index) {
+                gridEl.children[index].classList.remove('selected');
+                selectedCardIndex = null;
+            } else {
+                const firstIndex = selectedCardIndex;
+                gridEl.children[firstIndex].classList.remove('selected');
+                selectedCardIndex = null;
+                checkPairMatch(firstIndex, index);
+            }
+        }
+
+        /* ================= 判斷配對與動態動畫效果 ================= */
+        function checkPairMatch(idx1, idx2) {
+            const card1 = cards[idx1];
+            const card2 = cards[idx2];
+            if (!card1 || !card2) return;
+
+            const gridEl = document.getElementById('gameGrid');
+            const el1 = gridEl.children[idx1];
+            const el2 = gridEl.children[idx2];
+
+            const sum = card1.num + card2.num;
+
+            if (sum === 10) {
+                // 配對成功：執行「移動飛躍 + 消除 + 補充」
+                animateCardMoveAndMatch(el1, el2, () => {
+                    handleMatchSuccess(idx1, idx2);
+                });
+            } else {
+                // 配對失敗：顯示搖晃效果
+                sounds.playErrorSound();
+                [el1, el2].forEach(el => {
+                    if (el) {
+                        el.classList.add('shake-anim');
+                        setTimeout(() => el.classList.remove('shake-anim'), 400);
+                    }
+                });
+            }
+        }
+
+        /* 卡片拖曳移動到另一個卡片位置的極致視覺飛躍動畫 */
+        function animateCardMoveAndMatch(sourceEl, targetEl, callback) {
+            if (!sourceEl || !targetEl) {
+                callback();
+                return;
+            }
+
+            const r1 = sourceEl.getBoundingClientRect();
+            const r2 = targetEl.getBoundingClientRect();
+
+            // 計算兩卡間的偏移差距
+            const deltaX = r2.left - r1.left;
+            const deltaY = r2.top - r1.top;
+
+            // 讓 sourceEl 飛往 targetEl
+            sourceEl.classList.add('card-flying');
+            sourceEl.style.transform = `translate(${deltaX}px, ${deltaY}px) scale(1.1) rotate(5deg)`;
+            sourceEl.style.opacity = '0.9';
+
+            setTimeout(() => {
+                callback();
+            }, 300);
+        }
+
+        /* 配對成功處理：僅替換消去的那 2 張卡片，其餘 14 張保留不變 */
+        function handleMatchSuccess(idx1, idx2) {
+            score += 1;
+            document.getElementById('scoreText').innerText = score;
+            sounds.playMatchSound();
+
+            const gridEl = document.getElementById('gameGrid');
+            const el1 = gridEl.children[idx1];
+            const el2 = gridEl.children[idx2];
+
+            // 顯示浮動 +1 分
+            if (el2) showFloatingScore(el2);
+
+            // 播放消去消失動畫
+            if (el1) el1.classList.add('matched-anim');
+            if (el2) el2.classList.add('matched-anim');
+
+            setTimeout(() => {
+                // 1. 複製目前的牌陣並暫時移除消去的這兩張（模擬剩餘 14 張牌）
+                const remainingCards = [...cards];
+                remainingCards[idx1] = null;
+                remainingCards[idx2] = null;
+                const activeRemaining = remainingCards.filter(c => c !== null);
+
+                let newCard1Num, newCard2Num;
+
+                // 2. 檢查剩餘 14 張牌是否已經有至少一組合為 10
+                if (hasValidPair(activeRemaining)) {
+                    // 若已經有可湊成 10 的對子，兩張新牌隨機抽取即可
+                    newCard1Num = getRandomCardNumber();
+                    newCard2Num = getRandomCardNumber();
+                } else {
+                    // 若剩餘 14 張牌無解，則從剩餘牌中找一個數字 x，讓新牌產出 10 - x
+                    // 確保盤面上隨時都有一組 10 的好朋友！
+                    const targetBaseCard = activeRemaining[Math.floor(Math.random() * activeRemaining.length)];
+                    newCard1Num = 10 - targetBaseCard.num;
+                    newCard2Num = getRandomCardNumber();
+                }
+
+                const newCard1 = createNewCardData(newCard1Num);
+                const newCard2 = createNewCardData(newCard2Num);
+
+                cards[idx1] = newCard1;
+                cards[idx2] = newCard2;
+
+                // 局部更新 DOM (僅替換這兩張，其餘 14 張保留原狀)
+                updateSingleCardUI(idx1, newCard1, true);
+                updateSingleCardUI(idx2, newCard2, true);
+            }, 320);
+        }
+
+        function showFloatingScore(targetEl) {
+            const rect = targetEl.getBoundingClientRect();
+            const floatEl = document.createElement('div');
+            floatEl.className = 'float-score text-3xl font-black';
+            floatEl.innerText = '+1分!';
+            floatEl.style.left = `${rect.left + rect.width / 4}px`;
+            floatEl.style.top = `${rect.top}px`;
+
+            document.body.appendChild(floatEl);
+            setTimeout(() => floatEl.remove(), 1000);
+        }
+
+        /* ================= 遊戲結束 ================= */
+        function endGame() {
+            isPlaying = false;
+            clearInterval(timerInterval);
+            sounds.playEndSound();
+
+            document.getElementById('finalScore').innerText = score;
+            document.getElementById('pairCountText').innerText = `成功配對了 ${score} 組 10 的好朋友！`;
+
+            const emojiEl = document.getElementById('rewardEmoji');
+            const titleEl = document.getElementById('rewardTitle');
+            const textEl = document.getElementById('encouragementText');
+
+            if (score >= 25) {
+                emojiEl.innerText = '👑';
+                titleEl.innerText = '太神了！超級數學小天才！';
+                textEl.innerText = '你的反應跟計算速度無可匹敵！簡直是合十神童！繼續保持，挑戰更高分吧！';
+            } else if (score >= 15) {
+                emojiEl.innerText = '🏆';
+                titleEl.innerText = '太棒了！合十小達人！';
+                textEl.innerText = '讚喔！你對於 10 的合成非常熟練，心算速度超快的！';
+            } else if (score >= 8) {
+                emojiEl.innerText = '🌟';
+                titleEl.innerText = '很厲害喔！進步神速！';
+                textEl.innerText = '做得好！你已經漸漸掌握 10 的好朋友了，再試一次一定能得更高分！';
+            } else {
+                emojiEl.innerText = '🎈';
+                titleEl.innerText = '加油加油！越玩會越厲害！';
+                textEl.innerText = '記得要找加起來等於 10 的卡牌喔！（例如：1加9、2加8、5加5），再挑戰一次吧！';
+            }
+
+            document.getElementById('gameOverOverlay').classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>
